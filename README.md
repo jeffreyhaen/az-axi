@@ -28,6 +28,21 @@ az-axi kusto cluster list              # no lens, still compacted
 az-axi rest --method get --url https://management.azure.com/tenants?api-version=2022-12-01
 ```
 
+## Why AXI: CLI vs MCP vs AXI
+
+Across extensive [AXI benchmark studies](https://axi.md/) (over 900 runs), agent-first CLIs achieve **100% task success** at **~50% fewer turns** and **50–66% lower cost** than MCP.
+
+This repository ships the harness behind its own measurements: 27 Azure CLI scenarios, recorded
+against a private subscription and replayed offline with the `o200k_base` tokenizer. The recordings
+stay local — see [`BENCHMARK.md`](BENCHMARK.md) for the method and for how to reproduce these
+numbers against your own subscription.
+
+| Interface | Context (Turn 0) | Output | Measured payload | Write Safety | Guidance |
+|---|---|---|---|---|---|
+| **`az-axi`** | **97 tokens** (`SKILL.md` frontmatter; body 1,421 only when the agent opens it) | **TOON** | **-97.6%** vs `az -o json` (-88.2% mean per scenario) | ✅ **Mutations planned by default; `--execute` to apply; `--confirm` for deletes** | Structured hints (`help[]`) |
+| **Raw CLI** (`az`) | ~0 tokens | JSON / ASCII | Baseline (full ARM payloads) | ❌ Direct mutations | Human text / exit codes |
+| **Azure MCP** | **15,245 tokens** (71 tool schemas, `@azure/mcp`) | JSON-RPC | Highest overhead (full schemas resent every turn) | Varies | Schema validation errors |
+
 ## Install
 
 ```sh

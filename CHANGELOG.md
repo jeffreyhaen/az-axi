@@ -34,3 +34,10 @@ Initial release.
   instead of hanging on a prompt
 - Windows-safe process launch: `az` is spawned through `cross-spawn`, which resolves `az.cmd`
   without platform branches in the CLI
+
+### Benchmark
+
+- Reproducible harness: `pnpm run bench:capture` records real `az` output locally,
+  `pnpm run bench` replays it offline through an `az` shim on PATH and regenerates `BENCHMARK.md`,
+  `pnpm run bench:surface` records the Azure MCP server's tool schemas
+- Recordings describe a real tenant and stay git-ignored; only the harness is published

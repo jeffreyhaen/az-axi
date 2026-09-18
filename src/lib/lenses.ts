@@ -147,6 +147,10 @@ export const LENSES: Record<string, Lens> = {
     fields: ["principalName", "roleDefinitionName", "scope", "principalType"],
     noun: "role assignments",
   },
+  "role definition list": {
+    fields: ["roleName", "roleType", "description"],
+    noun: "role definitions",
+  },
   "deployment group list": {
     fields: ["name", "properties.provisioningState", "properties.timestamp"],
     noun: "deployments",

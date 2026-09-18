@@ -1,0 +1,10 @@
+{
+  "resourceGroup": "<a resource group with a few resources>",
+  "location": "westeurope",
+  "vmResourceGroup": "<resource group of the VM below>",
+  "vm": "<vm name>",
+  "webappResourceGroup": "<resource group of the web app below>",
+  "webapp": "<web app name>",
+  "storageResourceGroup": "<resource group of the storage account below>",
+  "storageAccount": "<storage account name>"
+}

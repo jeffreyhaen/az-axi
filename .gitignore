@@ -20,3 +20,9 @@ az-axi.config.local.json
 
 # Local pi coding-agent state (unrelated to az-axi)
 .pi/
+
+# Benchmark recordings describe a real Azure tenant
+benchmark/targets.json
+benchmark/fixtures/
+benchmark/results.json
+benchmark/.shim/
