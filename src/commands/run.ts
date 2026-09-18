@@ -3,7 +3,7 @@ import { azJson, azText } from "../lib/az.js";
 import { parseAzHelp } from "../lib/azHelp.js";
 import { compactList, isRecord, project, prune } from "../lib/compact.js";
 import { countLine } from "../lib/format.js";
-import { assertNotInteractive, classify, commandShape, gate } from "../lib/gate.js";
+import { assertNotInteractive, assertNotStreaming, classify, commandShape, gate } from "../lib/gate.js";
 import { lensFor } from "../lib/lenses.js";
 import { redactSecrets } from "../lib/redact.js";
 import { renderCommand, splitArgs } from "../lib/split.js";
@@ -33,6 +33,8 @@ export async function runCommand(argv: string[]): Promise<Record<string, unknown
   if (args.includes("--help") || args.includes("-h")) {
     return helpOutput(args);
   }
+
+  assertNotStreaming(path, args);
 
   const command = renderCommand(args);
   const classification = classify(args);

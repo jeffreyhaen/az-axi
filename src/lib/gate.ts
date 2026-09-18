@@ -9,6 +9,12 @@ const DESTRUCTIVE_VERB = /^(delete|purge|remove|destroy|down|uninstall|detach|re
 /** Commands that only work with a human at the keyboard. */
 const INTERACTIVE = new Set(["login", "logout", "interactive", "feedback", "upgrade", "survey"]);
 
+/** Verbs that attach to a terminal instead of returning a payload. */
+const INTERACTIVE_VERB = new Set(["ssh", "exec", "attach", "browse", "connect"]);
+
+/** Follow-style flags that make az run until it is killed. */
+const FOLLOW_FLAG = /^(--follow|--stream)(=|$)/;
+
 export interface CommandShape {
   /** Positional command path, e.g. ["storage", "account", "create"]. */
   path: string[];
@@ -45,13 +51,53 @@ function restMethod(args: readonly string[]): "read" | "write" {
 
 export function assertNotInteractive(path: readonly string[]): void {
   const head = path[0] ?? "";
-  if (!INTERACTIVE.has(head)) return;
-  throw new AxiError(`\`az ${head}\` is interactive and is not available through az-axi`, "NOT_SUPPORTED", [
-    head === "login" || head === "logout"
-      ? `Run \`az ${head}\` yourself in a human terminal, then re-run az-axi`
-      : `Run \`az ${head}\` yourself in a human terminal`,
-    "Run `az-axi doctor` to check the current session",
-  ]);
+  const verb = path[path.length - 1] ?? "";
+  if (INTERACTIVE.has(head)) {
+    throw new AxiError(`\`az ${head}\` is interactive and is not available through az-axi`, "NOT_SUPPORTED", [
+      head === "login" || head === "logout"
+        ? `Run \`az ${head}\` yourself in a human terminal, then re-run az-axi`
+        : `Run \`az ${head}\` yourself in a human terminal`,
+      "Run `az-axi doctor` to check the current session",
+    ]);
+  }
+  if (path.length > 1 && INTERACTIVE_VERB.has(verb)) {
+    throw new AxiError(
+      `\`az ${path.join(" ")}\` opens an interactive session, which az-axi cannot represent`,
+      "NOT_SUPPORTED",
+      [`Run \`az ${path.join(" ")}\` yourself in a human terminal`],
+    );
+  }
+}
+
+/**
+ * az-axi buffers a command to completion before formatting it, so a log stream
+ * would never return. Streaming is refused up front with the bounded
+ * alternative, instead of hanging until something kills the process.
+ */
+export function assertNotStreaming(path: readonly string[], args: readonly string[]): void {
+  const verb = path[path.length - 1] ?? "";
+  const follow = args.some((arg) => FOLLOW_FLAG.test(arg));
+  const tailing = verb === "tail" && path.some((part) => part === "log" || part === "logs");
+  if (!follow && !tailing) return;
+
+  const command = path.join(" ");
+  const help: string[] = [];
+  if (path[0] === "webapp" || path[0] === "functionapp") {
+    help.push(`Run \`az-axi ${path[0]} log download -g <group> -n <name>\` for the stored logs`);
+  }
+  if (path.includes("logs")) {
+    help.push(`Run \`az-axi ${command} --tail 50\` for the last lines instead of a live stream`);
+  }
+  help.push(
+    'Query history instead: `az-axi monitor app-insights query --app <app> --analytics-query "traces | top 50 by timestamp desc"`',
+    `Run \`az ${command}\` yourself in a human terminal to watch it live`,
+  );
+
+  throw new AxiError(
+    `\`az ${command}\` streams until it is stopped, and az-axi buffers a command to completion`,
+    "NOT_SUPPORTED",
+    help.slice(0, 3),
+  );
 }
 
 export interface GateInput {

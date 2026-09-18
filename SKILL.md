@@ -105,7 +105,7 @@ az-axi resource list -g platform
 
 # App Service triage
 az-axi webapp list -g web
-az-axi webapp log tail -g web -n contoso-api --raw
+az-axi webapp log download -g web -n contoso-api
 
 # Container Apps triage
 az-axi containerapp list -g rg

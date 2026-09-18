@@ -51,7 +51,7 @@ export const LENSES: Record<string, Lens> = {
   "webapp list": {
     fields: ["name", "resourceGroup", "state", "defaultHostName", "kind"],
     noun: "web apps",
-    next: ["Run `az-axi webapp log tail -g <group> -n <name>`"],
+    next: ["Run `az-axi webapp log download -g <group> -n <name>` for stored logs"],
   },
   "webapp show": {
     fields: ["name", "resourceGroup", "state", "defaultHostName", "httpsOnly", "kind"],
@@ -100,7 +100,7 @@ export const LENSES: Record<string, Lens> = {
       "properties.latestRevisionName",
     ],
     noun: "container apps",
-    next: ["Run `az-axi containerapp logs show -g <group> -n <name>`"],
+    next: ["Run `az-axi containerapp logs show -g <group> -n <name> --tail 50`"],
   },
   "containerapp show": {
     fields: [

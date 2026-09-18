@@ -3,6 +3,20 @@
 All notable changes to az-axi are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-09-18
+
+### Fixed
+
+- Streaming commands are refused up front instead of hanging: `az-axi` buffers a command to
+  completion, so `webapp log tail`, `functionapp log tail`, and any command with `--follow` or
+  `--stream` could never return. They now fail fast with `NOT_SUPPORTED` and point at the bounded
+  alternative (`log download`, `--tail <n>`, an Application Insights query, or running `az` in a
+  human terminal)
+- Verbs that attach to a terminal (`ssh`, `exec`, `attach`, `browse`, `connect`) are refused for the
+  same reason, next to the existing `az login`/`az logout` refusal
+- `webapp list` no longer suggests `webapp log tail` as the next step, and `containerapp list`
+  suggests `containerapp logs show --tail 50`
+
 ## [0.1.0] - 2026-09-18
 
 Initial release.
