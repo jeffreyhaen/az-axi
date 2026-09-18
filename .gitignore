@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+*.tsbuildinfo
+
+# Local agent guidance, not part of the published repository
+AGENTS.md
+
+# Never commit local subscription/tenant defaults
+az-axi.config.json
+az-axi.config.local.json
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Local pi coding-agent state (unrelated to az-axi)
+.pi/

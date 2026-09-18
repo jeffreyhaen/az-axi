@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build + Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: "20"
+          - os: ubuntu-latest
+            node: "22"
+          - os: windows-latest
+            node: "20"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Use Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          node dist/bin/az-axi.js --version
+          node dist/bin/az-axi.js --help > /dev/null
+          node dist/bin/az-axi.js run --help > /dev/null
+          # An unknown leading flag must exit 2 (AXI principle 6)
+          set +e
+          node dist/bin/az-axi.js --definitely-not-a-flag > /dev/null 2>&1
+          test $? -eq 2 || exit 1
+          # An unknown az command must exit 2 as well, when az is available
+          if command -v az > /dev/null 2>&1; then
+            node dist/bin/az-axi.js definitely-not-a-command > /dev/null 2>&1
+            test $? -eq 2 || exit 1
+          fi

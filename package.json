@@ -1,0 +1,60 @@
+{
+  "name": "@jeffreyhaen/az-axi",
+  "version": "0.1.0",
+  "description": "Agent-ergonomic CLI for Azure — every Azure CLI module through one compact passthrough with token-efficient TOON output, redacted secrets, and gated mutations. An AXI (Agent eXperience Interface) over the Azure CLI.",
+  "keywords": [
+    "azure",
+    "az",
+    "azure-cli",
+    "axi",
+    "agent",
+    "cli",
+    "toon"
+  ],
+  "license": "MIT",
+  "author": "Jeffrey Haen",
+  "homepage": "https://github.com/jeffreyhaen/az-axi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeffreyhaen/az-axi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jeffreyhaen/az-axi/issues"
+  },
+  "type": "module",
+  "bin": {
+    "az-axi": "dist/bin/az-axi.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "SKILL.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/bin/az-axi.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@toon-format/toon": "^2.3.0",
+    "axi-sdk-js": "^0.1.7",
+    "cross-spawn": "^7.0.6"
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
+    "@types/node": "20.19.43",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.0"
+  }
+}
