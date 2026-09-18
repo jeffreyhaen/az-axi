@@ -5,6 +5,10 @@
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 
+<p align="center">
+  <img src="assets/az-axi-header.png" alt="az-axi for Azure">
+</p>
+
 Agent-ergonomic CLI for **Azure** — every Azure CLI module through one compact passthrough,
 in token-efficient [TOON](https://toonformat.dev/) output, with secrets redacted and mutations
 gated behind `--execute`.
