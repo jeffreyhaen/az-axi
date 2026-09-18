@@ -163,6 +163,7 @@ describe("runCommand", () => {
 
     expect(calls[0]?.options).toEqual({ forMs: 120_000, maxLines: 25 });
     expect(calls[0]?.args).not.toContain("--for");
+    expect(calls[0]?.args).not.toContain("--only-show-errors");
     expect(calls[0]?.args).toContain("--follow");
     expect(out.window).toBe("2m");
     expect(String(out.status)).toMatch(/25-line budget/);

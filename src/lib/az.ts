@@ -26,7 +26,10 @@ export interface AzStreamResult {
 }
 
 export type AzRunner = (args: string[]) => Promise<AzResult>;
-export type AzStreamer = (args: string[], options: AzStreamOptions) => Promise<AzStreamResult>;
+export type AzStreamer = (
+  args: string[],
+  options: AzStreamOptions,
+) => Promise<AzStreamResult>;
 
 let runner: AzRunner = defaultRunner;
 let streamer: AzStreamer = defaultStreamer;
@@ -92,15 +95,21 @@ function defaultRunner(args: string[]): Promise<AzResult> {
         reject(azNotInstalledError());
         return;
       }
-      reject(new AxiError(`failed to run az: ${error.message}`, "AZ_SPAWN_FAILED"));
+      reject(
+        new AxiError(`failed to run az: ${error.message}`, "AZ_SPAWN_FAILED"),
+      );
     });
 
     child.on("close", (code) => {
       if (overflowed) {
         reject(
-          new AxiError("az returned more output than az-axi can buffer", "OUTPUT_TOO_LARGE", [
-            "Narrow the query with --limit, --fields, or an az filter such as --query",
-          ]),
+          new AxiError(
+            "az returned more output than az-axi can buffer",
+            "OUTPUT_TOO_LARGE",
+            [
+              "Narrow the query with --limit, --fields, or an az filter such as --query",
+            ],
+          ),
         );
         return;
       }
@@ -115,11 +124,17 @@ function defaultRunner(args: string[]): Promise<AzResult> {
  * holds the log socket. The kill has to be synchronous: az-axi exits as soon as
  * it resolves, and an async taskkill would never get to run.
  */
-function killTree(child: { pid?: number; kill: (signal?: NodeJS.Signals) => boolean }): void {
+function killTree(child: {
+  pid?: number;
+  kill: (signal?: NodeJS.Signals) => boolean;
+}): void {
   const pid = child.pid;
   if (pid !== undefined && process.platform === "win32") {
     try {
-      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
     } catch {
       /* fall through to the signal below */
     }
@@ -135,83 +150,126 @@ function killTree(child: { pid?: number; kill: (signal?: NodeJS.Signals) => bool
  * Streaming commands (`log tail`, `--follow`) never exit on their own. Instead
  * of buffering to completion, capture a bounded window and kill the child, so
  * an agent always gets an answer that says how much was seen.
+ *
+ * Two az quirks decide the shape of this: the log stream is written to stderr
+ * as `WARNING:` lines, not stdout, and `--only-show-errors` suppresses the
+ * stream entirely. Both streams are therefore read as content, and the
+ * only-show-errors switch is off for the duration of a capture.
  */
-function defaultStreamer(args: string[], options: AzStreamOptions): Promise<AzStreamResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("az", args, {
-      env: { ...process.env, ...AZ_ENV },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
+export type SpawnLike = (
+  command: string,
+  args: string[],
+  options: Record<string, unknown>,
+) => ReturnType<typeof spawn>;
 
-    const lines: string[] = [];
-    let pending = "";
-    let stderr = "";
-    let stoppedBy: AzStreamResult["stoppedBy"] = "exit";
-    let settled = false;
+function defaultStreamer(
+  args: string[],
+  options: AzStreamOptions,
+): Promise<AzStreamResult> {
+  return makeStreamer(spawn as SpawnLike)(args, options);
+}
 
-    /**
-     * Resolving is not allowed to depend on the child dying: a stream that
-     * ignores the kill would hang az-axi forever, which is the failure this
-     * whole path exists to prevent.
-     */
-    const finish = (exitCode: number | undefined) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      killTree(child);
-      child.stdout?.destroy();
-      child.stderr?.destroy();
-      child.unref?.();
-      if (pending.trim().length > 0 && lines.length < options.maxLines) lines.push(pending.trim());
-      resolve({ lines, stoppedBy, stderr, exitCode });
-    };
+/** Exported for tests: the streamer with an injectable process launcher. */
+export function makeStreamer(launch: SpawnLike): AzStreamer {
+  return (args: string[], options: AzStreamOptions) =>
+    new Promise((resolve, reject) => {
+      const child = launch("az", args, {
+        env: {
+          ...process.env,
+          ...AZ_ENV,
+          AZURE_CORE_ONLY_SHOW_ERRORS: "false",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
 
-    const timer = setTimeout(() => {
-      stoppedBy = "window";
-      finish(undefined);
-    }, options.forMs);
-    timer.unref?.();
+      const lines: string[] = [];
+      const errors: string[] = [];
+      const pending = { stdout: "", stderr: "" };
+      let stoppedBy: AzStreamResult["stoppedBy"] = "exit";
+      let settled = false;
 
-    child.stdout?.setEncoding("utf8");
-    child.stderr?.setEncoding("utf8");
-    child.stdout?.on("data", (chunk: string) => {
-      pending += chunk;
-      const parts = pending.split(/\r?\n/);
-      pending = parts.pop() ?? "";
-      for (const part of parts) {
-        if (part.trim().length === 0) continue;
-        lines.push(part);
-        if (lines.length >= options.maxLines) {
-          stoppedBy = "limit";
-          finish(undefined);
+      /**
+       * Resolving is not allowed to depend on the child dying: a stream that
+       * ignores the kill would hang az-axi forever, which is the failure this
+       * whole path exists to prevent.
+       */
+      const finish = (exitCode: number | undefined) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        killTree(child);
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        child.unref?.();
+        for (const rest of [pending.stdout, pending.stderr]) {
+          if (rest.trim().length > 0 && lines.length < options.maxLines)
+            take(rest);
+        }
+        resolve({ lines, stoppedBy, stderr: errors.join("\n"), exitCode });
+      };
+
+      const timer = setTimeout(() => {
+        stoppedBy = "window";
+        finish(undefined);
+      }, options.forMs);
+      timer.unref?.();
+
+      /** az prefixes streamed lines with `WARNING:`; real failures use `ERROR:`. */
+      const take = (raw: string): boolean => {
+        const line = raw.replace(/^WARNING:\s*/, "").trimEnd();
+        if (line.trim().length === 0) return false;
+        if (/^ERROR:/.test(line)) {
+          errors.push(line.replace(/^ERROR:\s*/, ""));
+          return false;
+        }
+        lines.push(line);
+        return lines.length >= options.maxLines;
+      };
+
+      const consume = (which: "stdout" | "stderr") => (chunk: string) => {
+        pending[which] += chunk;
+        const parts = pending[which].split(/\r?\n/);
+        pending[which] = parts.pop() ?? "";
+        for (const part of parts) {
+          if (take(part)) {
+            stoppedBy = "limit";
+            finish(undefined);
+            return;
+          }
+        }
+      };
+
+      child.stdout?.setEncoding("utf8");
+      child.stderr?.setEncoding("utf8");
+      child.stdout?.on("data", consume("stdout"));
+      child.stderr?.on("data", consume("stderr"));
+
+      child.on("error", (error: NodeJS.ErrnoException) => {
+        clearTimeout(timer);
+        if (error.code === "ENOENT") {
+          reject(azNotInstalledError());
           return;
         }
-      }
-    });
-    child.stderr?.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
+        reject(
+          new AxiError(`failed to run az: ${error.message}`, "AZ_SPAWN_FAILED"),
+        );
+      });
 
-    child.on("error", (error: NodeJS.ErrnoException) => {
-      clearTimeout(timer);
-      if (error.code === "ENOENT") {
-        reject(azNotInstalledError());
-        return;
-      }
-      reject(new AxiError(`failed to run az: ${error.message}`, "AZ_SPAWN_FAILED"));
+      child.on("close", (code) => finish(code ?? undefined));
     });
-
-    child.on("close", (code) => finish(code ?? undefined));
-  });
 }
 
 export function azNotInstalledError(): AxiError {
-  return new AxiError("Azure CLI (`az`) is not installed or not on PATH", "AZ_NOT_INSTALLED", [
-    "Install it: https://learn.microsoft.com/cli/azure/install-azure-cli",
-    "Then run `az login` in a human terminal",
-    "Run `az-axi doctor` to re-check",
-  ]);
+  return new AxiError(
+    "Azure CLI (`az`) is not installed or not on PATH",
+    "AZ_NOT_INSTALLED",
+    [
+      "Install it: https://learn.microsoft.com/cli/azure/install-azure-cli",
+      "Then run `az login` in a human terminal",
+      "Run `az-axi doctor` to re-check",
+    ],
+  );
 }
 
 /** Run az and return the raw result, without interpreting the exit code. */
@@ -220,24 +278,39 @@ export async function azRaw(args: string[]): Promise<AzResult> {
 }
 
 /** Capture a bounded window of a streaming az command. */
-export async function azStream(args: string[], options: AzStreamOptions): Promise<AzStreamResult> {
-  return streamer([...stripOutputFlags(args), "--only-show-errors"], options);
+export async function azStream(
+  args: string[],
+  options: AzStreamOptions,
+): Promise<AzStreamResult> {
+  return streamer(stripOutputFlags(args), options);
 }
 
 /** Run az with `--output json` and parse the result. */
-export async function azJson<T = unknown>(args: string[]): Promise<T | undefined> {
-  const result = await azRaw([...stripOutputFlags(args), "--output", "json", "--only-show-errors"]);
+export async function azJson<T = unknown>(
+  args: string[],
+): Promise<T | undefined> {
+  const result = await azRaw([
+    ...stripOutputFlags(args),
+    "--output",
+    "json",
+    "--only-show-errors",
+  ]);
   if (result.exitCode !== 0) {
-    throw mapAzError([result.stderr, result.stdout].filter(Boolean).join("\n").trim(), result.exitCode);
+    throw mapAzError(
+      [result.stderr, result.stdout].filter(Boolean).join("\n").trim(),
+      result.exitCode,
+    );
   }
   const text = result.stdout.trim();
   if (text.length === 0) return undefined;
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new AxiError(`az returned output that is not JSON: ${text.slice(0, 200)}`, "UNEXPECTED_OUTPUT", [
-      "Retry with --raw to read the unparsed az output",
-    ]);
+    throw new AxiError(
+      `az returned output that is not JSON: ${text.slice(0, 200)}`,
+      "UNEXPECTED_OUTPUT",
+      ["Retry with --raw to read the unparsed az output"],
+    );
   }
 }
 
@@ -245,7 +318,10 @@ export async function azJson<T = unknown>(args: string[]): Promise<T | undefined
 export async function azText(args: string[]): Promise<string> {
   const result = await azRaw([...stripOutputFlags(args), "--only-show-errors"]);
   if (result.exitCode !== 0) {
-    throw mapAzError([result.stderr, result.stdout].filter(Boolean).join("\n").trim(), result.exitCode);
+    throw mapAzError(
+      [result.stderr, result.stdout].filter(Boolean).join("\n").trim(),
+      result.exitCode,
+    );
   }
   return result.stdout;
 }
@@ -266,12 +342,16 @@ export function stripOutputFlags(args: readonly string[]): string[] {
   return out;
 }
 
-const NOT_LOGGED_IN = /(az login)|(Please run 'az login')|(No subscription found)|(AADSTS)|(refresh token has expired)/i;
-const NOT_FOUND = /(ResourceNotFound)|(was not found)|(could not be found)|(NotFound)/i;
-const FORBIDDEN = /(AuthorizationFailed)|(does not have authorization)|(Forbidden)|(InsufficientPrivileges)/i;
+const NOT_LOGGED_IN =
+  /(az login)|(Please run 'az login')|(No subscription found)|(AADSTS)|(refresh token has expired)/i;
+const NOT_FOUND =
+  /(ResourceNotFound)|(was not found)|(could not be found)|(NotFound)/i;
+const FORBIDDEN =
+  /(AuthorizationFailed)|(does not have authorization)|(Forbidden)|(InsufficientPrivileges)/i;
 const UNKNOWN_COMMAND =
   /(is not in the '.*' command group)|(unrecognized arguments)|(invalid choice)|(not an az command)|(is misspelled or not recognized)|(are misspelled or not recognized)/i;
-const EXTENSION_MISSING = /(is not installed)|(extension is not installed)|(The command requires the extension)/i;
+const EXTENSION_MISSING =
+  /(is not installed)|(extension is not installed)|(The command requires the extension)/i;
 
 /** Map az stderr onto an AXI error code with actionable next steps. */
 export function mapAzError(message: string, exitCode: number): AxiError {

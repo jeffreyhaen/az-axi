@@ -3,6 +3,16 @@
 All notable changes to az-axi are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-09-18
+
+### Fixed
+
+- A captured log stream returned nothing at all. `az webapp log tail` writes the stream to stderr as
+  `WARNING:` lines rather than stdout, and `--only-show-errors` suppresses the stream entirely, so
+  az-axi was reading the wrong stream of a silenced command. Both streams are now read as content,
+  the `WARNING:` prefix is stripped, `ERROR:` lines are kept out of the payload and reported as the
+  failure, and only-show-errors is off for the duration of a capture
+
 ## [0.1.2] - 2026-09-18
 
 ### Added
