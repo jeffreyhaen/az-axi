@@ -70,34 +70,14 @@ export function assertNotInteractive(path: readonly string[]): void {
 }
 
 /**
- * az-axi buffers a command to completion before formatting it, so a log stream
- * would never return. Streaming is refused up front with the bounded
- * alternative, instead of hanging until something kills the process.
+ * az-axi buffers a command to completion, so a log stream would never return.
+ * Streaming commands are detected here and captured in a bounded window
+ * instead, which is the one thing raw az cannot do.
  */
-export function assertNotStreaming(path: readonly string[], args: readonly string[]): void {
+export function isStreaming(path: readonly string[], args: readonly string[]): boolean {
   const verb = path[path.length - 1] ?? "";
-  const follow = args.some((arg) => FOLLOW_FLAG.test(arg));
-  const tailing = verb === "tail" && path.some((part) => part === "log" || part === "logs");
-  if (!follow && !tailing) return;
-
-  const command = path.join(" ");
-  const help: string[] = [];
-  if (path[0] === "webapp" || path[0] === "functionapp") {
-    help.push(`Run \`az-axi ${path[0]} log download -g <group> -n <name>\` for the stored logs`);
-  }
-  if (path.includes("logs")) {
-    help.push(`Run \`az-axi ${command} --tail 50\` for the last lines instead of a live stream`);
-  }
-  help.push(
-    'Query history instead: `az-axi monitor app-insights query --app <app> --analytics-query "traces | top 50 by timestamp desc"`',
-    `Run \`az ${command}\` yourself in a human terminal to watch it live`,
-  );
-
-  throw new AxiError(
-    `\`az ${command}\` streams until it is stopped, and az-axi buffers a command to completion`,
-    "NOT_SUPPORTED",
-    help.slice(0, 3),
-  );
+  if (args.some((arg) => FOLLOW_FLAG.test(arg))) return true;
+  return verb === "tail" && path.some((part) => part === "log" || part === "logs");
 }
 
 export interface GateInput {

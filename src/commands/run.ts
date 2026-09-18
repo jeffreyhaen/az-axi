@@ -1,14 +1,18 @@
 import { AxiError } from "axi-sdk-js";
-import { azJson, azText } from "../lib/az.js";
+import { azJson, azStream, azText, mapAzError } from "../lib/az.js";
 import { parseAzHelp } from "../lib/azHelp.js";
 import { compactList, isRecord, project, prune } from "../lib/compact.js";
 import { countLine } from "../lib/format.js";
-import { assertNotInteractive, assertNotStreaming, classify, commandShape, gate } from "../lib/gate.js";
+import { assertNotInteractive, classify, commandShape, gate, isStreaming } from "../lib/gate.js";
 import { lensFor } from "../lib/lenses.js";
 import { redactSecrets } from "../lib/redact.js";
 import { renderCommand, splitArgs } from "../lib/split.js";
 
 export const DEFAULT_LIMIT = 50;
+
+/** A live stream has no end, so az-axi captures a window and says so. */
+export const DEFAULT_STREAM_MS = 15_000;
+export const DEFAULT_STREAM_LINES = 200;
 
 /**
  * The single passthrough every Azure CLI module flows through. Nothing here is
@@ -34,8 +38,6 @@ export async function runCommand(argv: string[]): Promise<Record<string, unknown
     return helpOutput(args);
   }
 
-  assertNotStreaming(path, args);
-
   const command = renderCommand(args);
   const classification = classify(args);
   const blocked =
@@ -50,6 +52,10 @@ export async function runCommand(argv: string[]): Promise<Record<string, unknown
   if (blocked) return blocked.output;
   if (options.dryRun) {
     return { plan: command, classification, status: "dry run — read-only command, nothing executed" };
+  }
+
+  if (isStreaming(path, args)) {
+    return streamOutput(command, args, options);
   }
 
   if (options.raw) {
@@ -98,6 +104,53 @@ export async function runCommand(argv: string[]): Promise<Record<string, unknown
 
   result.result = value;
   return withHelp(result, lens?.next, path);
+}
+
+/**
+ * A live stream is captured for a bounded window instead of forever. The result
+ * always states the window and why it ended, so an agent never mistakes a
+ * closed window for "these are all the logs".
+ */
+async function streamOutput(
+  command: string,
+  args: readonly string[],
+  options: { forMs?: number; limit?: number; full: boolean; reveal: boolean },
+): Promise<Record<string, unknown>> {
+  const forMs = options.forMs ?? DEFAULT_STREAM_MS;
+  const maxLines = options.limit ?? DEFAULT_STREAM_LINES;
+  const result = await azStream([...args], { forMs, maxLines });
+
+  if (result.exitCode !== undefined && result.exitCode !== 0 && result.lines.length === 0) {
+    throw mapAzError([result.stderr, result.lines.join("\n")].filter(Boolean).join("\n").trim(), result.exitCode);
+  }
+
+  const window = formatDuration(forMs);
+  const out: Record<string, unknown> = {
+    command,
+    window,
+    count: `${result.lines.length} ${result.lines.length === 1 ? "line" : "lines"}`,
+  };
+  out.status =
+    result.stoppedBy === "window"
+      ? `captured ${result.lines.length} lines in ${window}; the stream is still running in Azure`
+      : result.stoppedBy === "limit"
+        ? `stopped at the ${maxLines}-line budget; the stream is still running in Azure`
+        : `az exited on its own after ${result.lines.length} lines`;
+  out.lines = redactSecrets(result.lines, { reveal: options.reveal, context: "log" });
+  if (result.lines.length === 0) {
+    out.status = `no output in ${window} — the app may be idle or file logging may be off`;
+  }
+  out.help = [
+    `Widen the window with --for 60s, or raise the line budget with --limit ${maxLines * 2}`,
+    'Query history instead: `az-axi monitor app-insights query --app <app> --analytics-query "traces | top 50 by timestamp desc"`',
+  ];
+  return out;
+}
+
+function formatDuration(ms: number): string {
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`;
+  if (ms % 1000 === 0) return `${ms / 1000}s`;
+  return `${ms}ms`;
 }
 
 function dryRunOutput(command: string, classification: string): Record<string, unknown> {

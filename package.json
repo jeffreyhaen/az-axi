@@ -1,6 +1,6 @@
 {
   "name": "@jeffreyhaen/az-axi",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Agent-ergonomic CLI for Azure — every Azure CLI module through one compact passthrough with token-efficient TOON output, redacted secrets, and gated mutations. An AXI (Agent eXperience Interface) over the Azure CLI.",
   "keywords": [
     "azure",

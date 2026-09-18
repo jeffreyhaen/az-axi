@@ -122,7 +122,8 @@ Every flag `az-axi` does not own is forwarded to `az` unchanged — `--subscript
 | Flag | Meaning |
 |---|---|
 | `--fields a,b.c` | Pick columns; dot paths are allowed (`sku.name`) |
-| `--limit <n>` | Rows to show (default 50) |
+| `--limit <n>` | Rows to show (default 50); lines to capture for a log stream (default 200) |
+| `--for <duration>` | How long to capture a log stream, e.g. `--for 60s` (default 15s) |
 | `--full` | No truncation, no pruning, no row cap |
 | `--reveal` | Do not redact secret-looking values |
 | `--execute` | Actually run a mutating command |

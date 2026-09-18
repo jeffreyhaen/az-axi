@@ -78,7 +78,8 @@ az-axi group delete -n scratch --yes --execute --confirm   # delete-style needs 
 | Flag | Use |
 |---|---|
 | `--fields a,b.c` | Pick columns; dot paths allowed (`sku.name`, `properties.runningStatus`) |
-| `--limit <n>` | Rows to show (default 50; the total is always reported) |
+| `--limit <n>` | Rows to show (default 50; the total is always reported). For a log stream: lines to capture (default 200) |
+| `--for <duration>` | How long to capture a log stream, e.g. `--for 60s` (default 15s) |
 | `--full` | Untruncated, unpruned, uncapped payload — use sparingly |
 | `--reveal` | Show secret values (keys, connection strings, Key Vault secrets) |
 | `--raw` | `az` stdout as text, for commands whose output is not JSON |
@@ -105,6 +106,7 @@ az-axi resource list -g platform
 
 # App Service triage
 az-axi webapp list -g web
+az-axi webapp log tail -g web -n contoso-api --for 30s
 az-axi webapp log download -g web -n contoso-api
 
 # Container Apps triage

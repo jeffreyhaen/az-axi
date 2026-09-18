@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resetAzRunner, setAzRunner, type AzResult } from "../src/lib/az.js";
+import {
+  resetAzRunner,
+  resetAzStreamer,
+  setAzRunner,
+  setAzStreamer,
+  type AzResult,
+  type AzStreamOptions,
+  type AzStreamResult,
+} from "../src/lib/az.js";
 import { runCommand } from "../src/commands/run.js";
 
 function stub(result: Partial<AzResult>, capture?: string[][]) {
@@ -9,7 +17,20 @@ function stub(result: Partial<AzResult>, capture?: string[][]) {
   });
 }
 
-afterEach(() => resetAzRunner());
+function stubStream(
+  result: Partial<AzStreamResult>,
+  capture?: { args: string[]; options: AzStreamOptions }[],
+) {
+  setAzStreamer(async (args, options) => {
+    capture?.push({ args, options });
+    return { lines: [], stoppedBy: "window", stderr: "", exitCode: undefined, ...result };
+  });
+}
+
+afterEach(() => {
+  resetAzRunner();
+  resetAzStreamer();
+});
 
 describe("runCommand", () => {
   it("compacts a list through the matching lens and reports the total", async () => {
@@ -121,5 +142,43 @@ describe("runCommand", () => {
     const out = await runCommand(["vm", "--help"]);
     expect(out.summary).toBe("Manage VMs.");
     expect(out.commands).toEqual([{ name: "list", summary: "List VMs." }]);
+  });
+
+  it("captures a log stream in a bounded window instead of hanging", async () => {
+    const calls: { args: string[]; options: AzStreamOptions }[] = [];
+    stubStream({ lines: ["line one", "line two"], stoppedBy: "window" }, calls);
+    const out = await runCommand(["webapp", "log", "tail", "-g", "rg", "-n", "api"]);
+
+    expect(calls[0]?.options).toEqual({ forMs: 15_000, maxLines: 200 });
+    expect(out.window).toBe("15s");
+    expect(out.count).toBe("2 lines");
+    expect(out.lines).toEqual(["line one", "line two"]);
+    expect(String(out.status)).toMatch(/still running in Azure/);
+  });
+
+  it("honours --for and --limit as the stream bounds", async () => {
+    const calls: { args: string[]; options: AzStreamOptions }[] = [];
+    stubStream({ lines: ["only"], stoppedBy: "limit" }, calls);
+    const out = await runCommand(["containerapp", "logs", "show", "-n", "api", "--follow", "--for", "2m", "--limit", "25"]);
+
+    expect(calls[0]?.options).toEqual({ forMs: 120_000, maxLines: 25 });
+    expect(calls[0]?.args).not.toContain("--for");
+    expect(calls[0]?.args).toContain("--follow");
+    expect(out.window).toBe("2m");
+    expect(String(out.status)).toMatch(/25-line budget/);
+  });
+
+  it("says so when a stream produced nothing", async () => {
+    stubStream({ lines: [], stoppedBy: "window" });
+    const out = await runCommand(["webapp", "log", "tail", "-g", "rg", "-n", "api"]);
+    expect(out.count).toBe("0 lines");
+    expect(String(out.status)).toMatch(/no output in 15s/);
+  });
+
+  it("reports an az failure when a stream produced nothing at all", async () => {
+    stubStream({ lines: [], stoppedBy: "exit", exitCode: 1, stderr: "ERROR: could not be found" });
+    await expect(runCommand(["webapp", "log", "tail", "-g", "rg", "-n", "api"])).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 });

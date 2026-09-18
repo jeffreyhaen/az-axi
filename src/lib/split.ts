@@ -5,7 +5,7 @@ import { AxiError } from "axi-sdk-js";
  * verbatim so the full Azure CLI surface stays reachable without a per-service
  * allowlist to maintain.
  */
-export const RESERVED_VALUE_FLAGS = new Set(["fields", "limit"]);
+export const RESERVED_VALUE_FLAGS = new Set(["fields", "limit", "for"]);
 export const RESERVED_BOOL_FLAGS = new Set(["full", "reveal", "execute", "confirm", "raw", "dry-run"]);
 
 export interface SplitArgs {
@@ -13,6 +13,8 @@ export interface SplitArgs {
   azArgs: string[];
   fields?: string[];
   limit?: number;
+  /** Streaming window in milliseconds (`--for 30s`). */
+  forMs?: number;
   full: boolean;
   reveal: boolean;
   execute: boolean;
@@ -54,12 +56,14 @@ export function splitArgs(argv: readonly string[]): SplitArgs {
     }
 
     if (RESERVED_VALUE_FLAGS.has(name)) {
-      const value = inline ?? argv[index + 1];
+        const value = inline ?? argv[index + 1];
       if (value === undefined || value.startsWith("-")) {
         throw new AxiError(`--${name} requires a value`, "VALIDATION_ERROR", [
           name === "fields"
             ? "Example: --fields name,resourceGroup,location"
-            : "Example: --limit 20",
+            : name === "for"
+              ? "Example: --for 30s"
+              : "Example: --limit 20",
         ]);
       }
       if (inline === undefined) index++;
@@ -68,6 +72,8 @@ export function splitArgs(argv: readonly string[]): SplitArgs {
           .split(",")
           .map((field) => field.trim())
           .filter(Boolean);
+      } else if (name === "for") {
+        out.forMs = parseDuration(value);
       } else {
         const parsed = Number(value);
         if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -84,6 +90,25 @@ export function splitArgs(argv: readonly string[]): SplitArgs {
   }
 
   return out;
+}
+
+/** Parse `30s`, `2m`, or a bare number of seconds into milliseconds. */
+export function parseDuration(value: string): number {
+  const match = /^(\d+(?:\.\d+)?)(ms|s|m)?$/i.exec(value.trim());
+  if (!match) {
+    throw new AxiError(`--for expects a duration such as 30s or 2m, got '${value}'`, "VALIDATION_ERROR", [
+      "Example: --for 30s",
+    ]);
+  }
+  const amount = Number(match[1]);
+  const unit = (match[2] ?? "s").toLowerCase();
+  const ms = unit === "ms" ? amount : unit === "m" ? amount * 60_000 : amount * 1000;
+  if (!Number.isFinite(ms) || ms <= 0) {
+    throw new AxiError(`--for expects a positive duration, got '${value}'`, "VALIDATION_ERROR", [
+      "Example: --for 30s",
+    ]);
+  }
+  return Math.floor(ms);
 }
 
 function setBool(target: SplitArgs, name: string, value: boolean): void {

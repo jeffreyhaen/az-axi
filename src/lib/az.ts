@@ -1,4 +1,5 @@
 import spawn from "cross-spawn";
+import { spawnSync } from "node:child_process";
 import { AxiError } from "axi-sdk-js";
 
 const MAX_BUFFER_BYTES = 48 * 1024 * 1024;
@@ -9,9 +10,26 @@ export interface AzResult {
   exitCode: number;
 }
 
+export interface AzStreamOptions {
+  /** Stop after this many milliseconds. */
+  forMs: number;
+  /** Stop after this many lines. */
+  maxLines: number;
+}
+
+export interface AzStreamResult {
+  lines: string[];
+  /** Why the capture ended: the window closed, the line budget ran out, or az exited. */
+  stoppedBy: "window" | "limit" | "exit";
+  stderr: string;
+  exitCode: number | undefined;
+}
+
 export type AzRunner = (args: string[]) => Promise<AzResult>;
+export type AzStreamer = (args: string[], options: AzStreamOptions) => Promise<AzStreamResult>;
 
 let runner: AzRunner = defaultRunner;
+let streamer: AzStreamer = defaultStreamer;
 
 /** Test seam: replace the process launcher. */
 export function setAzRunner(next: AzRunner): void {
@@ -20,6 +38,15 @@ export function setAzRunner(next: AzRunner): void {
 
 export function resetAzRunner(): void {
   runner = defaultRunner;
+}
+
+/** Test seam: replace the streaming launcher. */
+export function setAzStreamer(next: AzStreamer): void {
+  streamer = next;
+}
+
+export function resetAzStreamer(): void {
+  streamer = defaultStreamer;
 }
 
 const AZ_ENV = {
@@ -51,7 +78,7 @@ function defaultRunner(args: string[]): Promise<AzResult> {
     child.stdout?.on("data", (chunk: string) => {
       if (stdout.length + chunk.length > MAX_BUFFER_BYTES) {
         overflowed = true;
-        child.kill();
+        killTree(child);
         return;
       }
       stdout += chunk;
@@ -82,6 +109,103 @@ function defaultRunner(args: string[]): Promise<AzResult> {
   });
 }
 
+/**
+ * `child.kill()` signals the launcher, not the process tree. On Windows `az` is
+ * a batch file wrapping python, so the signal never reaches the process that
+ * holds the log socket. The kill has to be synchronous: az-axi exits as soon as
+ * it resolves, and an async taskkill would never get to run.
+ */
+function killTree(child: { pid?: number; kill: (signal?: NodeJS.Signals) => boolean }): void {
+  const pid = child.pid;
+  if (pid !== undefined && process.platform === "win32") {
+    try {
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    } catch {
+      /* fall through to the signal below */
+    }
+  }
+  try {
+    child.kill();
+  } catch {
+    /* the child is already gone */
+  }
+}
+
+/**
+ * Streaming commands (`log tail`, `--follow`) never exit on their own. Instead
+ * of buffering to completion, capture a bounded window and kill the child, so
+ * an agent always gets an answer that says how much was seen.
+ */
+function defaultStreamer(args: string[], options: AzStreamOptions): Promise<AzStreamResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("az", args, {
+      env: { ...process.env, ...AZ_ENV },
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+
+    const lines: string[] = [];
+    let pending = "";
+    let stderr = "";
+    let stoppedBy: AzStreamResult["stoppedBy"] = "exit";
+    let settled = false;
+
+    /**
+     * Resolving is not allowed to depend on the child dying: a stream that
+     * ignores the kill would hang az-axi forever, which is the failure this
+     * whole path exists to prevent.
+     */
+    const finish = (exitCode: number | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      killTree(child);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.unref?.();
+      if (pending.trim().length > 0 && lines.length < options.maxLines) lines.push(pending.trim());
+      resolve({ lines, stoppedBy, stderr, exitCode });
+    };
+
+    const timer = setTimeout(() => {
+      stoppedBy = "window";
+      finish(undefined);
+    }, options.forMs);
+    timer.unref?.();
+
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      pending += chunk;
+      const parts = pending.split(/\r?\n/);
+      pending = parts.pop() ?? "";
+      for (const part of parts) {
+        if (part.trim().length === 0) continue;
+        lines.push(part);
+        if (lines.length >= options.maxLines) {
+          stoppedBy = "limit";
+          finish(undefined);
+          return;
+        }
+      }
+    });
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      if (error.code === "ENOENT") {
+        reject(azNotInstalledError());
+        return;
+      }
+      reject(new AxiError(`failed to run az: ${error.message}`, "AZ_SPAWN_FAILED"));
+    });
+
+    child.on("close", (code) => finish(code ?? undefined));
+  });
+}
+
 export function azNotInstalledError(): AxiError {
   return new AxiError("Azure CLI (`az`) is not installed or not on PATH", "AZ_NOT_INSTALLED", [
     "Install it: https://learn.microsoft.com/cli/azure/install-azure-cli",
@@ -93,6 +217,11 @@ export function azNotInstalledError(): AxiError {
 /** Run az and return the raw result, without interpreting the exit code. */
 export async function azRaw(args: string[]): Promise<AzResult> {
   return runner(args);
+}
+
+/** Capture a bounded window of a streaming az command. */
+export async function azStream(args: string[], options: AzStreamOptions): Promise<AzStreamResult> {
+  return streamer([...stripOutputFlags(args), "--only-show-errors"], options);
 }
 
 /** Run az with `--output json` and parse the result. */

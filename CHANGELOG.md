@@ -3,6 +3,22 @@
 All notable changes to az-axi are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-09-18
+
+### Added
+
+- Bounded log streaming: `webapp log tail`, `functionapp log tail`, and any command with `--follow`
+  or `--stream` are captured for a window instead of being refused. The result reports the window,
+  the line count, and why the capture ended, so a closed window is never mistaken for "these are all
+  the logs". Raw `az` can only stream forever, so this is the one place az-axi does more than az
+- `--for <duration>` sets the capture window (`30s`, `2m`, or a bare number of seconds; default 15s).
+  `--limit <n>` doubles as the line budget for a stream (default 200)
+
+### Fixed
+
+- A captured stream no longer leaves an orphaned `az` process behind on Windows: `child.kill()` only
+  signals the launcher, so the process tree is now terminated synchronously before az-axi exits
+
 ## [0.1.1] - 2026-09-18
 
 ### Fixed
@@ -11,7 +27,7 @@ All notable changes to az-axi are documented here. This project follows
   completion, so `webapp log tail`, `functionapp log tail`, and any command with `--follow` or
   `--stream` could never return. They now fail fast with `NOT_SUPPORTED` and point at the bounded
   alternative (`log download`, `--tail <n>`, an Application Insights query, or running `az` in a
-  human terminal)
+  human terminal). Superseded by the bounded capture in 0.1.2
 - Verbs that attach to a terminal (`ssh`, `exec`, `attach`, `browse`, `connect`) are refused for the
   same reason, next to the existing `az login`/`az logout` refusal
 - `webapp list` no longer suggests `webapp log tail` as the next step, and `containerapp list`

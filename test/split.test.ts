@@ -27,3 +27,21 @@ describe("splitArgs", () => {
     expect(renderCommand(["vm", "list", "-g", "my rg"])).toBe('az vm list -g "my rg"');
   });
 });
+
+describe("--for", () => {
+  it("parses seconds, minutes, and bare numbers", () => {
+    expect(splitArgs(["webapp", "log", "tail", "--for", "30s"]).forMs).toBe(30_000);
+    expect(splitArgs(["webapp", "log", "tail", "--for", "2m"]).forMs).toBe(120_000);
+    expect(splitArgs(["webapp", "log", "tail", "--for=45"]).forMs).toBe(45_000);
+  });
+
+  it("keeps --for out of the az arguments", () => {
+    const out = splitArgs(["webapp", "log", "tail", "--for", "30s", "-g", "rg"]);
+    expect(out.azArgs).toEqual(["webapp", "log", "tail", "-g", "rg"]);
+  });
+
+  it("rejects a value that is not a duration", () => {
+    expect(() => splitArgs(["webapp", "log", "tail", "--for", "soon"])).toThrowError(/duration/);
+    expect(() => splitArgs(["webapp", "log", "tail", "--for", "0s"])).toThrowError(/positive/);
+  });
+});

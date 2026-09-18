@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertNotInteractive, assertNotStreaming, classify, commandShape, gate } from "../src/lib/gate.js";
+import { assertNotInteractive, classify, commandShape, gate, isStreaming } from "../src/lib/gate.js";
 
 describe("classify", () => {
   it("treats list/show style verbs as reads", () => {
@@ -65,31 +65,16 @@ describe("assertNotInteractive", () => {
   });
 });
 
-describe("assertNotStreaming", () => {
-  it("refuses log tail, which never returns through a buffering wrapper", () => {
-    const args = ["webapp", "log", "tail", "-g", "rg", "-n", "api"];
-    expect(() => assertNotStreaming(["webapp", "log", "tail"], args)).toThrowError(/streams until it is stopped/);
+describe("isStreaming", () => {
+  it("detects log tail and follow-style flags", () => {
+    expect(isStreaming(["webapp", "log", "tail"], ["webapp", "log", "tail", "-g", "rg"])).toBe(true);
+    expect(isStreaming(["functionapp", "log", "tail"], ["functionapp", "log", "tail"])).toBe(true);
+    expect(isStreaming(["containerapp", "logs", "show"], ["containerapp", "logs", "show", "--follow"])).toBe(true);
   });
 
-  it("refuses follow-style flags", () => {
-    const args = ["containerapp", "logs", "show", "-n", "api", "--follow"];
-    expect(() => assertNotStreaming(["containerapp", "logs", "show"], args)).toThrowError(/streams until it is stopped/);
-  });
-
-  it("points at the bounded alternative", () => {
-    try {
-      assertNotStreaming(["webapp", "log", "tail"], ["webapp", "log", "tail"]);
-      throw new Error("expected a refusal");
-    } catch (error) {
-      const help = (error as { suggestions?: string[] }).suggestions ?? [];
-      expect(help.join("\n")).toMatch(/webapp log download/);
-      expect(help.join("\n")).toMatch(/app-insights query/);
-    }
-  });
-
-  it("leaves bounded log commands alone", () => {
-    expect(() => assertNotStreaming(["containerapp", "logs", "show"], ["--tail", "50"])).not.toThrow();
-    expect(() => assertNotStreaming(["webapp", "log", "download"], ["-g", "rg"])).not.toThrow();
-    expect(() => assertNotStreaming(["vm", "list"], ["-g", "rg"])).not.toThrow();
+  it("leaves bounded commands alone", () => {
+    expect(isStreaming(["containerapp", "logs", "show"], ["--tail", "50"])).toBe(false);
+    expect(isStreaming(["webapp", "log", "download"], ["-g", "rg"])).toBe(false);
+    expect(isStreaming(["vm", "list"], ["-g", "rg"])).toBe(false);
   });
 });

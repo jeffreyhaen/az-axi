@@ -24,7 +24,7 @@ export const TOP_LEVEL_HELP = [
   "--execute is passed, and delete-style commands additionally need --confirm. Secrets are",
   "redacted unless --reveal. az-axi never prompts — run `az login` yourself.",
   "",
-  "az-axi flags: --fields a,b  --limit <n>  --full  --reveal  --execute  --confirm  --dry-run  --raw",
+  "az-axi flags: --fields a,b  --limit <n>  --for <duration>  --full  --reveal  --execute  --confirm  --dry-run  --raw",
   "Every other flag (--subscription, -g, --query, --name, ...) is forwarded to az unchanged.",
 ].join("\n");
 
@@ -39,7 +39,8 @@ const PASSTHROUGH_HELP = [
   "",
   "az-axi flags:",
   "  --fields a,b.c   pick columns (dot paths allowed, e.g. sku.name)",
-  "  --limit <n>      rows to show (default 50)",
+  "  --limit <n>      rows to show (default 50; lines for a log stream, default 200)",
+  "  --for <duration> how long to capture a log stream (default 15s, e.g. --for 60s)",
   "  --full           no truncation, no pruning, no row cap",
   "  --reveal         do not redact secret-looking values",
   "  --execute        actually run a mutating command",
@@ -50,6 +51,7 @@ const PASSTHROUGH_HELP = [
   "Examples:",
   "  az-axi aks list --fields name,resourceGroup,kubernetesVersion",
   "  az-axi storage account list -g data --limit 10",
+  "  az-axi webapp log tail -g web -n contoso-api --for 30s",
   "  az-axi keyvault secret show --vault-name kv -n api-key --reveal",
   "  az-axi containerapp update -g rg -n api --image ghcr.io/acme/api:1.2.3 --execute",
 ].join("\n");
