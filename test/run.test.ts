@@ -80,6 +80,48 @@ describe("runCommand", () => {
     expect(out.status).toMatch(/dry run/);
   });
 
+  it("gates explicit extension installation", async () => {
+    const calls: string[][] = [];
+    stub({ stdout: "{}" }, calls);
+    const args = ["extension", "add", "--name", "example-extension"];
+    const plan = await runCommand(args);
+    expect(calls).toHaveLength(0);
+    expect(plan.classification).toBe("mutation");
+    await runCommand([...args, "--execute"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.slice(0, args.length)).toEqual(args);
+  });
+
+  it.each([
+    ["resource", "show", "--ids", "C:/Program Files/Git/subscriptions/sub/resourceGroups/rg"],
+    ["role", "assignment", "create", "--scope=D:\\Tools\\Git\\subscriptions\\sub", "--execute"],
+    ["resource", "delete", "--ids", "C:/Program Files/Git/subscriptions/sub", "--dry-run"],
+    ["resource", "show", "--ids", "C:/Program Files/Git/subscriptions/sub", "--raw"],
+    ["webapp", "log", "tail", "--ids", "C:/Program Files/Git/subscriptions/sub"],
+  ])("rejects Git Bash-converted IDs before execution: %j", async (...args) => {
+    const calls: string[][] = [];
+    const streamCalls: { args: string[]; options: AzStreamOptions }[] = [];
+    stub({ stdout: "{}" }, calls);
+    stubStream({}, streamCalls);
+    await expect(runCommand(args)).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      suggestions: expect.arrayContaining([expect.stringContaining("MSYS_NO_PATHCONV=1")]),
+    });
+    expect(calls).toHaveLength(0);
+    expect(streamCalls).toHaveLength(0);
+  });
+
+  it("forwards original IDs and unrelated Windows file paths unchanged", async () => {
+    const calls: string[][] = [];
+    stub({ stdout: "{}" }, calls);
+    const args = [
+      "deployment", "group", "validate", "--template-file", "C:/templates/subscriptions/template.json",
+      "--scope", "/subscriptions/sub/resourceGroups/rg",
+    ];
+    await runCommand(args);
+    expect(calls[0]?.slice(0, args.length)).toEqual(args);
+  });
+
   it("runs the mutation once --execute is passed", async () => {
     const calls: string[][] = [];
     stub({ stdout: "{}" }, calls);

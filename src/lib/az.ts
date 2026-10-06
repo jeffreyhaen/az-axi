@@ -53,6 +53,7 @@ export function resetAzStreamer(): void {
 }
 
 const AZ_ENV = {
+  AZURE_EXTENSION_USE_DYNAMIC_INSTALL: "no",
   AZURE_CORE_COLLECT_TELEMETRY: "no",
   AZURE_CORE_ONLY_SHOW_ERRORS: "true",
   AZURE_CORE_DISABLE_CONFIRM_PROMPT: "1",
@@ -274,6 +275,7 @@ export function azNotInstalledError(): AxiError {
 
 /** Run az and return the raw result, without interpreting the exit code. */
 export async function azRaw(args: string[]): Promise<AzResult> {
+  assertNoMsysResourceIds(args);
   return runner(args);
 }
 
@@ -282,6 +284,7 @@ export async function azStream(
   args: string[],
   options: AzStreamOptions,
 ): Promise<AzStreamResult> {
+  assertNoMsysResourceIds(args);
   return streamer(stripOutputFlags(args), options);
 }
 
@@ -342,6 +345,17 @@ export function stripOutputFlags(args: readonly string[]): string[] {
   return out;
 }
 
+export function assertNoMsysResourceIds(args: readonly string[]): void {
+  const converted = args.some((arg) =>
+    /(?:^|=)[a-z]:[\\/](?:[^\\/\r\n]+[\\/])*git[\\/]subscriptions(?:[\\/]|$)/i.test(arg),
+  );
+  if (!converted) return;
+  throw new AxiError("Git Bash converted an Azure resource ID into a Windows path", "VALIDATION_ERROR", [
+    "Retry with the original /subscriptions/... ID and prefix the command with `MSYS_NO_PATHCONV=1 az-axi ...`",
+    "Quoting the ID alone does not prevent Git Bash path conversion",
+  ]);
+}
+
 const NOT_LOGGED_IN =
   /(az login)|(Please run 'az login')|(No subscription found)|(AADSTS)|(refresh token has expired)/i;
 const NOT_FOUND =
@@ -351,7 +365,17 @@ const FORBIDDEN =
 const UNKNOWN_COMMAND =
   /(is not in the '.*' command group)|(unrecognized arguments)|(invalid choice)|(not an az command)|(is misspelled or not recognized)|(are misspelled or not recognized)/i;
 const EXTENSION_MISSING =
-  /(is not installed)|(extension is not installed)|(The command requires the extension)/i;
+  /(the command requires (?:the latest version of )?(?:the )?(?:extension\b|one of the following extensions\b))|(\bextension\b[^\r\n]*\bis not installed\b)/i;
+
+function requiredExtensionName(text: string): string | undefined {
+  const required = text.match(
+    /\brequires (?:the latest version of )?(?:the )?extension\s+['"`]?([a-z0-9][a-z0-9._-]*)(?=['"`]?(?:[.\s]|$))/i,
+  );
+  const missing = text.match(
+    /\bextension\s+['"`]?([a-z0-9][a-z0-9._-]*)['"`]?\s+is not installed\b/i,
+  );
+  return (required?.[1] ?? missing?.[1])?.replace(/\.+$/, "");
+}
 
 /** Map az stderr onto an AXI error code with actionable next steps. */
 export function mapAzError(message: string, exitCode: number): AxiError {
@@ -363,15 +387,21 @@ export function mapAzError(message: string, exitCode: number): AxiError {
     ]);
   }
   if (EXTENSION_MISSING.test(text)) {
-    return new AxiError(firstLine(text), "EXTENSION_REQUIRED", [
-      "Install the extension with `az extension add --name <name>`",
-      "Run `az-axi doctor` to list installed extensions",
-    ]);
+    const name = requiredExtensionName(text);
+    return new AxiError(
+      `${name ? `Azure CLI extension \`${name}\`` : "An Azure CLI extension"} is required. Automatic extension installation is not allowed; explicit user permission is required`,
+      "EXTENSION_REQUIRED",
+      [
+        `Install only with user permission: \`az-axi extension add --name ${name ?? "<name>"} --execute\``,
+        "Run `az-axi doctor` to list installed extensions",
+      ],
+    );
   }
   if (UNKNOWN_COMMAND.test(text)) {
     return new AxiError(firstLine(text), "VALIDATION_ERROR", [
       "Run `az-axi find <text>` to search available command groups",
       "Run `az-axi <group> --help` for the exact syntax",
+      "If an extension is missing, install only with explicit user permission: `az-axi extension add --name <name> --execute` (automatic extension installation is not allowed)",
     ]);
   }
   if (FORBIDDEN.test(text)) {

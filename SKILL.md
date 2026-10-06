@@ -44,6 +44,10 @@ Use `az-axi az <module> ...` when a module name collides with an az-axi command
 All az flags pass through unchanged: `--subscription`, `-g/--resource-group`, `--name`,
 `--query`, `-d`, module-specific flags. Do not pass `-o/--output`; az-axi owns the output format.
 
+In Git Bash, prefix commands containing `/subscriptions/...` IDs with `MSYS_NO_PATHCONV=1`
+(e.g. `MSYS_NO_PATHCONV=1 az-axi resource show --ids "/subscriptions/..."`). Quoting alone does
+not prevent conversion to Windows paths; retry with the original ID, never strip a prefix to repair it.
+
 ## Discovery
 
 ```sh
@@ -129,8 +133,10 @@ Errors are structured on stdout with an actionable `help[]`:
 
 - `AZ_NOT_INSTALLED` — Azure CLI is missing; ask the user to install it.
 - `AUTH_REQUIRED` — ask the user to run `az login`; never attempt it yourself.
-- `EXTENSION_REQUIRED` — `az extension add --name <name>` (a mutation; needs `--execute`).
+- `EXTENSION_REQUIRED` — automatic extension installation is not allowed; explicit user permission
+  is required. Install via `az-axi extension add --name <name> --execute`.
 - `VALIDATION_ERROR` (exit 2) — wrong command or flag; run `az-axi find <text>` or `--help`.
+  Missing extensions can also appear as unknown commands. For Git Bash path errors, retry as above.
 - `FORBIDDEN` / `NOT_FOUND` — check subscription, resource group, and role assignment.
 
 Exit codes: 0 success (including dry-run plans and empty results), 1 runtime error, 2 usage error.

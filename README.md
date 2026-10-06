@@ -111,7 +111,8 @@ Every flag `az-axi` does not own is forwarded to `az` unchanged — `--subscript
 - **Discovery without a catalog.** `az-axi find` and `az-axi <group> --help` read the Azure CLI's
   own help tree, so discovery can never drift from the installed `az`.
 - **No prompts, ever.** `az login`, `az logout`, and `az interactive` are refused with instructions
-  instead of hanging on a prompt an agent cannot answer.
+  instead of hanging on a prompt an agent cannot answer. Automatic extension installation is
+  not allowed; explicit user permission is required. Install via `az-axi extension add --name <name> --execute`.
 - **Windows-safe process launch.** `az` is spawned through `cross-spawn`, which resolves `az.cmd`
   on Windows; command resolution stays in the spawn layer instead of platform branches in the CLI.
 - **Exit codes.** 0 success (including dry-run plans and empty results), 1 runtime error, 2 usage

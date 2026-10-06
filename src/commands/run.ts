@@ -1,5 +1,5 @@
 import { AxiError } from "axi-sdk-js";
-import { azJson, azStream, azText, mapAzError } from "../lib/az.js";
+import { assertNoMsysResourceIds, azJson, azStream, azText, mapAzError } from "../lib/az.js";
 import { parseAzHelp } from "../lib/azHelp.js";
 import { compactList, isRecord, project, prune } from "../lib/compact.js";
 import { countLine } from "../lib/format.js";
@@ -31,6 +31,7 @@ export async function runCommand(argv: string[]): Promise<Record<string, unknown
     ]);
   }
 
+  assertNoMsysResourceIds(args);
   const { path } = commandShape(args);
   assertNotInteractive(path);
 

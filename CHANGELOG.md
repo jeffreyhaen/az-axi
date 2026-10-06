@@ -3,6 +3,15 @@
 All notable changes to az-axi are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Automatic Azure CLI extension installation is not allowed, including during reads and log streams.
+  Missing-extension hints use `az-axi extension add --name <name> --execute` with explicit user permission
+- Git Bash-converted resource IDs with a Git installation prefix are rejected before execution,
+  with an `MSYS_NO_PATHCONV=1` recovery hint instead of silently repairing the ID
+
 ## [0.1.3] - 2026-09-18
 
 ### Fixed
